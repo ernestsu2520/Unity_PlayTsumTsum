@@ -9,6 +9,15 @@ public class GameUIController : MonoBehaviour {
     private GameObject FeverBar;
     private float FeverBarTarget_X;
 
+    //分數
+    private int TargetScore;
+    private float NowScore;
+    private GameObject ScoreTxt;
+    private int TargetFeverScore;
+    private float NowFeverScore;
+    private GameObject FeverScoreTxt;
+    [Header("分數遞增速度")]public float ScoreAddSpeed;
+
     private GameObject GameOverPanel;
 
     void Awake()
@@ -18,11 +27,17 @@ public class GameUIController : MonoBehaviour {
         FeverBar = GameObject.Find("FeverBar/FeverBarInner");
         GameOverPanel = GameObject.Find("GameOverPanel");
         FeverBarTarget_X = 1;
+
+        ScoreTxt = GameObject.Find("ScoreGroup/Score");
+        FeverScoreTxt = GameObject.Find("ScoreGroup/FeverScore");
+        FeverScoreTxt.SetActive(false);
     }
 
     void Update()
     {
         FeverTimeUI_Update();
+        Score_Update();
+        FeverScore_Update();
     }
 
     public void RefreshComboUI(int combo)
@@ -69,5 +84,39 @@ public class GameUIController : MonoBehaviour {
     public void GameOverPanelControl(bool IsShow)
     {
         GameOverPanel.SetActive(IsShow);
+    }
+
+    void Score_Update() {
+        if (NowScore < TargetScore)
+        {
+            NowScore = Mathf.Lerp(NowScore, TargetScore, Time.deltaTime * ScoreAddSpeed);
+            ScoreTxt.GetComponent<Text>().text = string.Format("{0:#,0}", NowScore);
+        }
+    }
+    public void RefreshScore(int targetScore)
+    {
+        TargetScore = targetScore;
+    }
+
+
+    public void FeverScore_Update()
+    {
+        if (NowFeverScore < TargetFeverScore)
+        {
+            NowFeverScore = Mathf.Lerp(NowFeverScore, TargetFeverScore,Time.deltaTime * ScoreAddSpeed);
+            FeverScoreTxt.GetComponent<Text>().text = string.Format("{0:#,0}", NowFeverScore);
+        }
+    }
+    public void RefreshFeverScore(int targetFeverScore)
+    {
+        if (targetFeverScore == 0)
+        {
+            FeverScoreTxt.SetActive(false);
+        }
+        else
+        {
+            FeverScoreTxt.SetActive(true);
+        }
+        TargetFeverScore = targetFeverScore;
     }
 }
