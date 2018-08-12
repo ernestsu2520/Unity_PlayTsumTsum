@@ -33,7 +33,8 @@ public class GamePlayController : MonoBehaviour {
     private bool IsInComboTime;
     private float NowComboRemainTime; //Combo持續剩餘時間
 
-    public int Score;
+    public float Score;
+    public float FeverScore;
 
     [Header("FeverTime開啟顆數")] public int FeverTimeBallMax;
     [Header("當前消除顆數(會隨時間遞減)")] public int FeverTimeBallCount;
@@ -43,6 +44,7 @@ public class GamePlayController : MonoBehaviour {
     private bool IsInFeverTime;
     private int FeverTimeScore;
 
+    [Header("氣泡爆破大小")] public float bubbleRadious;
 #if UNITY_EDITOR
     private void OnDrawGizmos()
     {
@@ -75,8 +77,8 @@ public class GamePlayController : MonoBehaviour {
         }
     }
 
-    //Call the function to spawn ball form "BallPool.cs"
-    void SpawnBall()
+   
+    void SpawnBall()  //Call the function to spawn ball form "BallPool.cs" 
     {
         if (NowBallNumber < MaxBallNumber)
         {
@@ -127,11 +129,19 @@ public class GamePlayController : MonoBehaviour {
     {
         Vector3 m_pos = Camera.main.ScreenToWorldPoint(InputPos);
         RaycastHit2D hit2D = Physics2D.Raycast(m_pos, Vector2.zero);
-        if (hit2D && hit2D.collider.gameObject.tag == "Ball")
+        if (hit2D)
         {
-            target_type = hit2D.collider.gameObject.GetComponent<BallBasic>().type + 1;
-            AddToChain(hit2D.collider.gameObject);
-            IsLineRender = true; //將路徑實現成線段
+            if (hit2D.collider.gameObject.tag == "Ball")
+            {
+                target_type = hit2D.collider.gameObject.GetComponent<BallBasic>().type + 1;
+                AddToChain(hit2D.collider.gameObject);
+                IsLineRender = true; //將路徑實現成線段
+            }
+            else if (hit2D.collider.gameObject.tag == "BubbleBall")
+            {
+                DrawSphere(hit2D.collider.gameObject.transform.position);
+                GetComponent<MagicBubblePool>().ReCycleBubble(hit2D.collider.gameObject);
+            }
         }
     }
     void GetInput(Vector3 InputPos)
@@ -146,37 +156,45 @@ public class GamePlayController : MonoBehaviour {
     void GetInputUp()
     {
         //確認消除數大於等於3時，開始回收tsum
-        bool StartRecycle = false;
-        if (selectBalls.Count >= 3)
+        int link = selectBalls.Count;
+        if (link >= 3)
         {
-            StartRecycle = true;
+            SetCombo();  //Combo數增加
 
-            //Combo數增加
-            IsInComboTime = true;
-            NowComboRemainTime = ComboRemainTime;
-            ComboCount++;
-            GetComponent<GameUIController>().RefreshComboUI(ComboCount);
+            Vector3 tmp_BubblePos = new Vector3() ;
 
-            //Fever計算
-            AddFeverCount(selectBalls.Count);
-        }
-        foreach (GameObject ball in selectBalls.ToArray())
-        {
-            RemoveToChain(selectBalls.IndexOf(ball));
-            if (StartRecycle)
+            //基本分計算
+            int tempBasicScore = 0;
+            foreach (GameObject ball in selectBalls.ToArray())
             {
+                RemoveToChain(selectBalls.IndexOf(ball));
+
+                //累加基本分
+                tempBasicScore += ball.GetComponent<BallBasic>().BasicScore;
+                tmp_BubblePos = ball.transform.position;
                 GetComponent<BallPool>().RecycleBall(ball);
                 NowBallNumber--;
             }
+
+            GetComponent<MagicBubblePool>().SpawnMagicBubble(link, tmp_BubblePos);
+
+            ScoreCoculate(tempBasicScore, link); //加分計算
+
+            //Fever計算
+            AddFeverCount(link);
         }
-
+        else
+        {
+            foreach (GameObject ball in selectBalls.ToArray())
+            {
+                RemoveToChain(selectBalls.IndexOf(ball));
+            }
+        }
         target_type = 0;
-
         IsLineRender = false;
     }
 
-    //驗證球的狀態
-    void ValidateBall(GameObject ball)
+    void ValidateBall(GameObject ball) //驗證球的狀態 
     {
         if (ball.GetComponent<BallBasic>().type + 1 == target_type)
         {
@@ -197,27 +215,22 @@ public class GamePlayController : MonoBehaviour {
             }
         }
     }
-    //加入選擇陣列中
-    void AddToChain(GameObject ball)
+    void AddToChain(GameObject ball) //加入選擇陣列中 
     {
         selectBalls.Add(ball);
         ball.GetComponent<Animator>().SetBool("selected", true);
     }
-    //從選擇陣列移除
-    void RemoveToChain(int index)
+    void RemoveToChain(int index) //從選擇陣列移除 
     {
         selectBalls[index].GetComponent<Animator>().SetBool("selected", false);
         selectBalls.RemoveAt(index);
     }
 
-    //計算兩點距離
-    float CalculateDis(Vector3 NextPos)
+    float CalculateDis(Vector3 NextPos) //計算兩點距離 
     {
         return Vector3.Distance(selectBalls[selectBalls.Count - 1].transform.position,NextPos);
     }
-
-    //控制畫線
-    void RenderTheLine()
+    void RenderTheLine() //控制畫線 
     {
         if (IsLineRender)
         {
@@ -232,9 +245,7 @@ public class GamePlayController : MonoBehaviour {
             lineRenderer.positionCount = 0;
         }
     }
-
-    //倒數計時
-    void Timer()
+    void Timer() //倒數計時 
     {
         time -= Time.deltaTime;
         if (time <= 0)
@@ -246,8 +257,43 @@ public class GamePlayController : MonoBehaviour {
         GetComponent<GameUIController>().RefreshTimerUI(time);
     }
 
-    //Combo計時
-    void ComboTimer() {
+    #region Bubble
+    void DrawSphere(Vector3 original)
+    {
+        SetCombo();  //Combo數增加
+
+        Collider2D[] bubbleColliders =  Physics2D.OverlapCircleAll(original, bubbleRadious);
+
+        if (bubbleColliders.Length > 0)
+        {
+            //基本分計算
+            int tempBasicScore = 0;
+            foreach (Collider2D bubbleCollider in bubbleColliders)
+            {
+                //累加基本分
+                if (bubbleCollider.gameObject.tag == "Bubble")
+                {
+                    tempBasicScore += bubbleCollider.gameObject.GetComponent<BallBasic>().BasicScore;
+                    GetComponent<BallPool>().RecycleBall(bubbleCollider.gameObject);
+                    NowBallNumber--;
+                }
+               
+            }
+        }
+    
+    }
+    #endregion
+
+    #region Combo
+    void SetCombo() //Combo數增加
+    {
+        IsInComboTime = true;
+        NowComboRemainTime = ComboRemainTime;
+        ComboCount++;
+        GetComponent<GameUIController>().RefreshComboUI(ComboCount);
+    }
+    void ComboTimer() //Combo計時
+    {
         if (IsInComboTime)
         {
             NowComboRemainTime -= Time.deltaTime;
@@ -259,9 +305,10 @@ public class GamePlayController : MonoBehaviour {
             }
         }
     }
+    #endregion
 
-    //FeverTime處理
-    void AddFeverCount(int add)
+    #region FeverTime
+    void AddFeverCount(int add) //FeverTime處理 
     {
         if (!IsInFeverTime)
         {
@@ -275,11 +322,12 @@ public class GamePlayController : MonoBehaviour {
         {
             FeverTimeBallCount = 0;
             IsInFeverTime = true;
+            time += 5; //進入FeverTime 增加5秒
             FeverBallDecreaseTimeCount = FeverRemainTime;
         }
         FeverCounAutoDecrease();
     }
-    void FeverCounAutoDecrease()
+    void FeverCounAutoDecrease() //FeverTime累積條自動遞減
     {
         if (!IsInFeverTime)
         {
@@ -302,28 +350,51 @@ public class GamePlayController : MonoBehaviour {
             if (FeverBallDecreaseTimeCount <= 0)
             {
                 IsInFeverTime = false;
+                FeverTimeEndAddScore();
             }
         }
     }
-
-    int BasicScoreCaculate(int link)
+    void FeverTimeEndAddScore() //FeverTime結束之分數計算 
     {
-        return (link >= 3 ? 0 : 300)
-                + (link >= 4 ? 0 : 400)
-                + (link >= 5 ? 0 : 600)
-                + (link >= 6 ? 0 : 800)
-                + (link >= 7 ? 0 : 1000)
-                + (link >= 8 ? 0 : (link >= 11 ? 3 : link - 7) * 1500)
-                + (link >= 11 ? 0 : (link >= 15 ? 4 : link - 10) * 2000)
-                + (link >= 15 ? 0 : (link >= 20 ? 5 : link - 14) * 2500)
-                + (link >= 20 ? 0 : (link >= 30 ? 10 : link - 19) * 3000)
-                + (link >= 30 ? 0 : (link >= 36 ? 6 : link - 29) * 3500);
+        Score += FeverScore * GetComboRate(ComboCount);
+        FeverScore = 0;
+        GetComponent<GameUIController>().RefreshScore(Mathf.FloorToInt(Score));
+        GetComponent<GameUIController>().RefreshFeverScore(Mathf.FloorToInt(FeverScore));
     }
-
-    float ComboRateCaculate(int combo)
+    #endregion
+   
+    #region 分數計算相關
+    void ScoreCoculate(int BasicScore,int link) //分數計算 
+    {
+        if (!IsInFeverTime)
+        {
+            Score += (BasicScore + GetLinkBasicScore(link)) * GetComboRate(ComboCount);
+            GetComponent<GameUIController>().RefreshScore(Mathf.FloorToInt(Score));
+        }
+        else
+        {
+            FeverScore += (BasicScore * 3 + GetLinkBasicScore(link));
+            GetComponent<GameUIController>().RefreshFeverScore(Mathf.FloorToInt(FeverScore));
+        }  
+    }
+    int GetLinkBasicScore(int link) //基本分數轉換 
+    {
+        return (link >= 3 ? 300 : 0)
+                + (link >= 4 ? 400 : 0)
+                + (link >= 5 ? 600 : 0)
+                + (link >= 6 ? 800 : 0)
+                + (link >= 7 ? 1000 : 0)
+                + (link >= 8 ? (link >= 11 ? 3 : link - 7) * 1500 : 0)
+                + (link >= 11 ? (link >= 15 ? 4 : link - 10) * 2000 : 0)
+                + (link >= 15 ? (link >= 20 ? 5 : link - 14) * 2500 : 0)
+                + (link >= 20 ? (link >= 30 ? 10 : link - 19) * 3000 : 0)
+                + (link >= 30 ? (link >= 36 ? 6 : link - 29) * 3500 : 0);
+    }
+    float GetComboRate(int combo)  //加成倍率轉換
     {
         return 1.10f + 0.1f * (combo > 48 ? 48 : combo);
     }
+    #endregion
 
     public void ChangeScene(int index)
     {
